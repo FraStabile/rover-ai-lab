@@ -160,7 +160,7 @@ Then:
 ```bash
 npm run dev:jev          # jevos + simulation server + UI together
 # or in two terminals:
-npm run jev              # = .jev/current/jev serve   (extra args: npm run jev -- --threads 8)
+npm run jev              # = .jev/current/jev serve; installs jevos first if missing (JEV_NO_AUTO_INSTALL=1 to disable)
 npm run dev
 ```
 
