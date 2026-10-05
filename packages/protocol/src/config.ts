@@ -94,14 +94,36 @@ export interface SensorsConfig {
 
 export type AiProvider = 'mock' | 'local-jev' | 'custom-http';
 
+export type JevProtocol = 'systemone' | 'native' | 'openai-chat';
+
+export const DEFAULT_JEV_INSTRUCTIONS = [
+  'You are the driving policy of a small ground rover. The state is JSON.',
+  'obstacles.front, frontLeft, frontRight, left and right are free distances in metres from the rover body.',
+  'target.bearing is the angle to the target in degrees: positive means the target is to the LEFT, negative to the RIGHT. target.distance is in metres.',
+  'Rules, in order: if mission.state is not RUNNING or obstacles.valid is false, choose STOP.',
+  'If target.distance is below mission.tolerance, choose STOP.',
+  'If battery.percentage is below 15, choose RETURN_HOME.',
+  'If obstacles.front is below 1.2, turn toward the side with more free space: TURN_LEFT if frontLeft is larger than frontRight, otherwise TURN_RIGHT.',
+  'If target.bearing is above 45 choose TURN_LEFT; if it is below -45 choose TURN_RIGHT.',
+  'If obstacles.front is below 2.5 choose SLOW_DOWN. Otherwise choose REACH_TARGET.',
+  'Which action should the rover take now?',
+].join(' ');
+
 export interface JevConfig {
   enabled: boolean;
   baseUrl: string;
   model: string;
-  /** 'native' posts the state as JSON; 'openai-chat' uses an OpenAI compatible /chat/completions API. */
-  protocol: 'native' | 'openai-chat';
+  /**
+   * 'systemone': jevos / Jev wire format (POST /v1/systemone, a `choice` question over the actions).
+   * 'native': posts the state and expects {action, confidence, reason}.
+   * 'openai-chat': OpenAI compatible /v1/chat/completions.
+   */
+  protocol: JevProtocol;
+  /** Empty = the protocol's default path. */
   decidePath: string;
   healthPath: string;
+  /** systemone only: the decision policy written into the question (jevos reads the rule from the question). */
+  instructions: string;
   /** Optional header values (no secrets are stored in the repository). */
   headers: Record<string, string>;
   temperature: number;
@@ -275,11 +297,12 @@ export function createDefaultConfig(): AppConfig {
       syncMode: 'realtime',
       jev: {
         enabled: false,
-        baseUrl: 'http://localhost:8000',
-        model: 'default',
-        protocol: 'native',
-        decidePath: '/decide',
-        healthPath: '/health',
+        baseUrl: 'http://127.0.0.1:8017',
+        model: 'jev-latest',
+        protocol: 'systemone',
+        decidePath: '',
+        healthPath: '',
+        instructions: DEFAULT_JEV_INSTRUCTIONS,
         headers: {},
         temperature: 0,
       },

@@ -10,6 +10,27 @@ returns into the internal decision:
 Allowed actions: `FORWARD`, `TURN_LEFT`, `TURN_RIGHT`, `REVERSE`, `STOP`, `SLOW_DOWN`, `REACH_TARGET`, `RETURN_HOME`.
 Aliases (`left`, `go`, `halt`, …) are normalised; confidence may be 0–1 or 0–100.
 
+## jevos / Jev protocol (`JEV_PROTOCOL=systemone`, default)
+
+[jevos](https://github.com/feder-cr/jev) serves the Jev wire format on `http://127.0.0.1:8017` (install:
+`npm run jev:install`, run: `npm run jev`). Its unit of work is a *question about a state*, so the adapter turns
+"what should the rover do?" into one `choice` question:
+
+* `POST /v1/systemone` with `{ model: "jev-latest", state: <AggregatedState>, questions: { action: { type: "choice",
+  instructions: <policy>, criteria: { <ACTION>: <description>, … } } } }`
+* answer `answers.action = { choice, probabilities, confidence }` → decision `action = choice`,
+  `confidence = probabilities[choice]`; jevos's own `confidence` (peak probability rescaled from uniform) is kept in
+  `reason`. If `choice` is missing, the most probable option wins.
+* health: `GET /health` → `{"status": "ready", …}`.
+
+The policy text (`ai.jev.instructions`, editable in the UI or with `JEV_INSTRUCTIONS`) is where the driving rules live:
+jevos reads the rule from the question. Keep it explicit and ordered (thresholds in metres and degrees, the bearing sign
+convention), and keep the number of options small — each option is one yes/no evaluation (≈150 ms for eight on a
+laptop CPU).
+
+If jevos runs with `JEV_API_KEY`, export the same variable for the lab; the adapter adds `Authorization: Bearer …`
+at request time and never stores the key in the config, the UI or recorded runs.
+
 ## Native protocol (`JEV_PROTOCOL=native`)
 
 `POST {JEV_BASE_URL}{JEV_DECIDE_PATH}` (default `/decide`):
@@ -80,7 +101,7 @@ and the configured temperature. Health uses `GET /v1/models`.
 ## Testing without the real model
 
 ```bash
-npm run mock-jev            # :8000, native + OpenAI endpoints, latency 120±60 ms
+npm run mock-jev            # :8017, systemone + native + OpenAI endpoints, latency 120±60 ms
 MOCK_JEV_LATENCY=600 MOCK_JEV_ERROR_RATE=0.1 npm run mock-jev
 ```
 

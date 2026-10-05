@@ -12,6 +12,7 @@
   },
   "scripts": {
     "dev": "concurrently -k -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:jev": "concurrently -k -n jev,server,web -c yellow,cyan,magenta \"npm:jev\" \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "npm run dev -w @rover/server",
     "dev:web": "npm run dev -w @rover/web",
     "build": "npm run typecheck && npm run build -w @rover/web",
@@ -21,6 +22,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "mock-jev": "tsx scripts/mock-jev-server.ts",
+    "jev": "bash scripts/run-jev.sh",
+    "jev:install": "bash scripts/install-jev.sh",
     "compare": "tsx scripts/compare-engines.ts",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build -w @rover/web"
   },

@@ -5,9 +5,10 @@ services:
       - "3000:3000"
     environment:
       AI_PROVIDER: ${AI_PROVIDER:-mock}
-      # A Jev server running on the host machine:
-      JEV_BASE_URL: ${JEV_BASE_URL:-http://host.docker.internal:8000}
-      JEV_MODEL: ${JEV_MODEL:-default}
+      JEV_PROTOCOL: ${JEV_PROTOCOL:-systemone}
+      # jevos (npm run jev) running on the host machine:
+      JEV_BASE_URL: ${JEV_BASE_URL:-http://host.docker.internal:8017}
+      JEV_MODEL: ${JEV_MODEL:-jev-latest}
       JEV_TIMEOUT: ${JEV_TIMEOUT:-1000}
       SIMULATION_DEFAULT_HZ: ${SIMULATION_DEFAULT_HZ:-50}
     extra_hosts:
@@ -21,8 +22,10 @@ services:
     profiles: ["mock-jev"]
     build: .
     command: ["npx", "tsx", "scripts/mock-jev-server.ts"]
+    environment:
+      MOCK_JEV_HOST: 0.0.0.0
     ports:
-      - "8000:8000"
+      - "8017:8017"
 
 volumes:
   rover-data:

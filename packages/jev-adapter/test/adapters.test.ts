@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDefaultConfig, type AiConfig } from '@rover/protocol';
-import { CustomHttpAdapter, LocalJevAdapter, mapResponse, renderTemplate, unwrapProviderResponse } from '../src';
+import { CustomHttpAdapter, LocalJevAdapter, mapResponse, renderTemplate, resolveJevPath, unwrapProviderResponse } from '../src';
 import { makeState } from '../../autonomy/test/fixtures';
 
 type Handler = (req: IncomingMessage, body: string, res: ServerResponse) => void;
@@ -38,10 +38,50 @@ const signal = () => AbortSignal.timeout(1000);
 function aiConfig(patch: (a: AiConfig) => void = () => {}): () => AiConfig {
   const c = createDefaultConfig().ai;
   c.jev.baseUrl = base;
+  c.jev.protocol = 'native';
   c.custom.url = `${base}/custom`;
   patch(c);
   return () => c;
 }
+
+describe('LocalJevAdapter · jevos systemone', () => {
+  it('asks one choice question over the actions and maps the answer', async () => {
+    handler = (req, _b, res) =>
+      req.url === '/v1/systemone'
+        ? json(res, {
+            model: 'jevos-v4',
+            answers: { action: { type: 'choice', choice: 'TURN_LEFT', probabilities: { TURN_LEFT: 0.62, FORWARD: 0.2, STOP: 0.18 }, confidence: 0.41 } },
+            usage: { input_tokens: 300, output_tokens: 0 },
+          })
+        : json(res, {}, 404);
+    const a = new LocalJevAdapter(aiConfig((c) => (c.jev.protocol = 'systemone')));
+    const r = await a.decide(makeState(), { signal: signal() });
+    expect(r.error).toBeUndefined();
+    expect(r.decision).toMatchObject({ action: 'TURN_LEFT', confidence: 0.62, meta: { model: 'jevos-v4', protocol: 'systemone' } });
+    expect(r.decision?.reason).toContain('confidence 0.41');
+    const body = lastBody as { model: string; state: unknown; questions: { action: { type: string; instructions: string; criteria: Record<string, string> } } };
+    expect(body.model).toBe('jev-latest');
+    expect(body.state).toMatchObject({ robot: { x: 0 } });
+    expect(body.questions.action.type).toBe('choice');
+    expect(Object.keys(body.questions.action.criteria)).toEqual(expect.arrayContaining(['FORWARD', 'TURN_LEFT', 'STOP', 'REACH_TARGET']));
+    expect(body.questions.action.instructions).toContain('Which action');
+  });
+
+  it('falls back to the most probable option and rejects unknown choices', async () => {
+    const a = new LocalJevAdapter(aiConfig((c) => (c.jev.protocol = 'systemone')));
+    handler = (_q, _b, res) => json(res, { answers: { action: { type: 'choice', probabilities: { STOP: 0.7, FORWARD: 0.3 } } } });
+    expect((await a.decide(makeState(), { signal: signal() })).decision?.action).toBe('STOP');
+    handler = (_q, _b, res) => json(res, { answers: { action: { type: 'choice', choice: 'JUMP', probabilities: { JUMP: 1 } } } });
+    expect((await a.decide(makeState(), { signal: signal() })).error?.code).toBe('INVALID_DECISION');
+  });
+
+  it('uses the jevos default paths', () => {
+    expect(resolveJevPath('systemone', '', 'decide')).toBe('/v1/systemone');
+    expect(resolveJevPath('systemone', '/decide', 'decide')).toBe('/v1/systemone');
+    expect(resolveJevPath('openai-chat', '/health', 'health')).toBe('/v1/models');
+    expect(resolveJevPath('native', '/custom/path', 'decide')).toBe('/custom/path');
+  });
+});
 
 describe('LocalJevAdapter', () => {
   it('posts the state and converts the answer to the internal schema', async () => {
@@ -50,7 +90,7 @@ describe('LocalJevAdapter', () => {
     const r = await a.decide(makeState(), { signal: signal() });
     expect(r.error).toBeUndefined();
     expect(r.decision).toMatchObject({ action: 'TURN_LEFT', confidence: 0.91, reason: 'Obstacle detected in front' });
-    expect(lastBody).toMatchObject({ model: 'default', state: { robot: { x: 0 } }, allowed_actions: expect.arrayContaining(['FORWARD']) });
+    expect(lastBody).toMatchObject({ model: 'jev-latest', state: { robot: { x: 0 } }, allowed_actions: expect.arrayContaining(['FORWARD']) });
   });
 
   it('supports OpenAI-compatible chat completions', async () => {

@@ -59,7 +59,8 @@ export function configFromEnv(): AppConfig {
   cfg.ai.jev.baseUrl = e.JEV_BASE_URL ?? e.JEV_URL ?? cfg.ai.jev.baseUrl;
   cfg.ai.jev.model = e.JEV_MODEL ?? cfg.ai.jev.model;
   cfg.ai.timeoutMs = num(e.JEV_TIMEOUT, cfg.ai.timeoutMs);
-  if (e.JEV_PROTOCOL === 'openai-chat' || e.JEV_PROTOCOL === 'native') cfg.ai.jev.protocol = e.JEV_PROTOCOL;
+  if (e.JEV_PROTOCOL === 'openai-chat' || e.JEV_PROTOCOL === 'native' || e.JEV_PROTOCOL === 'systemone') cfg.ai.jev.protocol = e.JEV_PROTOCOL;
+  if (e.JEV_INSTRUCTIONS) cfg.ai.jev.instructions = e.JEV_INSTRUCTIONS;
   cfg.ai.jev.decidePath = e.JEV_DECIDE_PATH ?? cfg.ai.jev.decidePath;
   cfg.ai.jev.healthPath = e.JEV_HEALTH_PATH ?? cfg.ai.jev.healthPath;
   if (e.CUSTOM_AI_URL) cfg.ai.custom.url = e.CUSTOM_AI_URL;

@@ -177,10 +177,21 @@ export function AiPanel() {
           <Field label="Base URL"><TextField value={j.baseUrl} width="w-44" onCommit={(v) => patch({ ai: { jev: { baseUrl: v } } })} /></Field>
           <Field label="Model"><TextField value={j.model} width="w-44" onCommit={(v) => patch({ ai: { jev: { model: v } } })} /></Field>
           <Field label="Protocol">
-            <Select value={j.protocol} width="w-32" options={[{ value: 'native', label: 'native JSON' }, { value: 'openai-chat', label: 'OpenAI chat' }] as const} onChange={(v) => patch({ ai: { jev: { protocol: v } } })} />
+            <Select
+              value={j.protocol}
+              width="w-36"
+              options={[{ value: 'systemone', label: 'jevos / systemone' }, { value: 'native', label: 'native JSON' }, { value: 'openai-chat', label: 'OpenAI chat' }] as const}
+              onChange={(v) => patch({ ai: { jev: { protocol: v } } })}
+            />
           </Field>
-          <Field label="Decide path"><TextField value={j.decidePath} width="w-44" onCommit={(v) => patch({ ai: { jev: { decidePath: v } } })} /></Field>
-          <Field label="Health path"><TextField value={j.healthPath} width="w-44" onCommit={(v) => patch({ ai: { jev: { healthPath: v } } })} /></Field>
+          <Field label="Decide path"><TextField value={j.decidePath} width="w-44" placeholder="(protocol default)" onCommit={(v) => patch({ ai: { jev: { decidePath: v } } })} /></Field>
+          <Field label="Health path"><TextField value={j.healthPath} width="w-44" placeholder="(protocol default)" onCommit={(v) => patch({ ai: { jev: { healthPath: v } } })} /></Field>
+          {j.protocol === 'systemone' && (
+            <>
+              <div className="label pt-1">Policy (written into the jevos question)</div>
+              <TextArea value={j.instructions} rows={8} onCommit={(v) => patch({ ai: { jev: { instructions: v } } })} />
+            </>
+          )}
           <Field label="Temperature"><NumField value={j.temperature} step={0.1} min={0} max={2} onCommit={(v) => patch({ ai: { jev: { temperature: v } } })} /></Field>
           <div className="label pt-1">Headers (JSON)</div>
           <TextArea value={JSON.stringify(j.headers)} rows={2} onCommit={(v) => { const h = parseJsonObject(v); if (h) void patch({ ai: { jev: { headers: h } } }); }} />

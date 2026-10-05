@@ -28,8 +28,9 @@ npm run dev
 Open **http://localhost:3000**.
 
 * `npm run dev` starts the API/simulation server (`:3001`) and the Vite UI (`:3000`, proxies `/api` and `/ws`).
-* Optional, to try the *Local Jev* path without the real model: `npm run mock-jev` (a stand-in Jev server on `:8000`),
-  then pick **SIM + LOCAL AI** in the top bar.
+* To drive the rover with **Jev** (jevos, a local Jev-compatible model): `npm run jev:install` once, then
+  `npm run dev:jev` and pick **SIM + LOCAL AI** in the top bar. See [Installing Jev](#installing-jev-jevos).
+  Without downloading the model, `npm run mock-jev` starts a stand-in on the same port.
 
 Production / single process (UI + API on `:3000`):
 
@@ -42,7 +43,7 @@ Docker:
 
 ```bash
 docker compose up --build                     # http://localhost:3000
-docker compose --profile mock-jev up --build  # also starts the mock Jev server on :8000
+docker compose --profile mock-jev up --build  # also starts the mock Jev server on :8017
 ```
 
 ### First run in 30 seconds
@@ -92,7 +93,7 @@ packages/
   jev-adapter/      LocalJevAdapter, CustomHttpAdapter
   autonomy/         StateAggregator, SafetyController, LocalPlanner, AutonomyStack (AI scheduling)
   runtime/          RoverRuntime: wires everything, real-time loop, headless runs, run recorder
-scripts/            mock-jev-server.ts, compare-engines.ts
+scripts/            install-jev.sh, run-jev.sh, mock-jev-server.ts, compare-engines.ts
 docs/               architecture, Jev integration, ROS2 bridge, simulation, testing
 ```
 
@@ -113,11 +114,13 @@ Environment variables (copy `.env.example` to `.env`; no secrets are committed):
 | `DATABASE_URL` | `file:./data/rover.db` | SQLite file (relative to repo root) or `file::memory:` |
 | `AI_PROVIDER` | `mock` | `mock` \| `local-jev` \| `custom-http` |
 | `JEV_ENABLED` | `false` | If `true` and no `AI_PROVIDER` is set, starts with `local-jev` |
-| `JEV_BASE_URL` (alias `JEV_URL`) | `http://localhost:8000` | Jev server base URL |
-| `JEV_MODEL` | `default` | Model name sent to the server |
+| `JEV_BASE_URL` (alias `JEV_URL`) | `http://127.0.0.1:8017` | Jev server base URL (jevos default port) |
+| `JEV_MODEL` | `jev-latest` | Model name sent to the server |
 | `JEV_TIMEOUT` | `1000` | AI request timeout (ms) |
-| `JEV_PROTOCOL` | `native` | `native` (JSON state → JSON decision) or `openai-chat` |
-| `JEV_DECIDE_PATH` / `JEV_HEALTH_PATH` | `/decide` / `/health` | Endpoint paths (OpenAI mode defaults to `/v1/chat/completions` / `/v1/models`) |
+| `JEV_PROTOCOL` | `systemone` | `systemone` (jevos / Jev wire format), `native` (JSON state → JSON decision) or `openai-chat` |
+| `JEV_DECIDE_PATH` / `JEV_HEALTH_PATH` | empty | Override the protocol's paths (`/v1/systemone` + `/health`, `/decide` + `/health`, `/v1/chat/completions` + `/v1/models`) |
+| `JEV_INSTRUCTIONS` | built-in policy | systemone: the driving policy written into the jevos question |
+| `JEV_API_KEY` | — | Bearer key, only if jevos runs with `JEV_API_KEY`; read at request time, never stored in the config |
 | `CUSTOM_AI_URL` | — | Initial URL for the custom HTTP provider |
 | `SIMULATION_DEFAULT_HZ` | `50` | Physics rate |
 | `SIMULATION_SEED` | `12345` | Default random seed |
@@ -126,93 +129,122 @@ Everything else (robot, sensors, AI timing, safety, planner, failures) is editab
 
 ---
 
-## Installing a local Jev
+## Installing Jev (jevos)
 
-The lab talks to Jev over HTTP only, so "installing Jev" means running *any* local server that speaks the decision
-contract. Three ways, from quickest to real:
+**Jev** here is [**jevos**](https://github.com/feder-cr/jev) (MIT): an open-source, Jev-compatible model that answers
+yes/no and multiple-choice questions on a laptop CPU in roughly 25–170 ms. It ships as a single binary (C++, OpenVINO,
+no Python, no GPU) plus an ~630 MB int8 model, and serves the Jev wire format on `http://127.0.0.1:8017`.
 
-### A. Mock Jev server (included, no install)
-
-A stand-in that implements the full contract with simulated latency. Good for checking the pipeline end to end.
+### Automatic install (macOS Apple Silicon, Linux x86_64)
 
 ```bash
-npm run mock-jev                                   # http://localhost:8000
-AI_PROVIDER=local-jev JEV_BASE_URL=http://localhost:8000 npm run dev
+npm run jev:install      # = bash scripts/install-jev.sh
 ```
 
-Options: `MOCK_JEV_PORT`, `MOCK_JEV_LATENCY` (ms), `MOCK_JEV_JITTER` (ms), `MOCK_JEV_ERROR_RATE` (0–1).
+The script:
 
-### B. A local LLM through Ollama (OpenAI-compatible)
+1. detects the platform and resolves the latest release of `feder-cr/jev` (currently `jevos-v4`);
+2. downloads the server (`jev-macos-arm64.tar.gz` or `jev-linux-x64.tar.gz`) and the model
+   (`jevos-v4-openvino-int8.zip`) into `.jev/downloads/` (resumable, ~650 MB the first time);
+3. verifies both files against the release's `SHA256SUMS.txt`;
+4. unpacks them into `.jev/<tag>/jev/` with the model in `jev/model/`, and links `.jev/current`;
+5. creates or updates `.env` with `AI_PROVIDER=local-jev`, `JEV_PROTOCOL=systemone`, `JEV_BASE_URL=http://127.0.0.1:8017`,
+   `JEV_MODEL=jev-latest`;
+6. starts jevos once, waits for `/health` to report `ready` and asks it one test question.
 
-1. Install Ollama: `brew install ollama` on macOS, or see https://ollama.com/download.
-2. Start it and download a small model (fast enough for ~2 decisions per second):
+Options: `--tag jevos-v3` (a specific release), `--dir <path>`, `--port <port>`, `--no-env`, `--skip-test`, `--dry-run`
+(only checks that the release files exist). `.jev/` is gitignored.
 
-   ```bash
-   ollama serve &            # skip if the Ollama app is already running
-   ollama pull qwen2.5:3b
-   ```
+Then:
 
-3. Point the lab at it:
-
-   ```bash
-   AI_PROVIDER=local-jev \
-   JEV_PROTOCOL=openai-chat \
-   JEV_BASE_URL=http://localhost:11434 \
-   JEV_MODEL=qwen2.5:3b \
-   JEV_TIMEOUT=3000 \
-   npm run dev
-   ```
-
-   Or do it from the UI: **AI → Local Jev**, Base URL `http://localhost:11434`, Model `qwen2.5:3b`, Protocol
-   **OpenAI chat**, Timeout `3000`, then **TEST**.
-
-In OpenAI mode the adapter sends a system prompt describing the contract and the state as the user message to
-`/v1/chat/completions`, and uses `/v1/models` as the health check. Any other OpenAI-compatible server works the same way
-(llama.cpp `llama-server`, vLLM, LM Studio): change `JEV_BASE_URL` and `JEV_MODEL`.
-
-Tips: keep the temperature at 0; if decisions take longer than the decision interval, raise **AI → Decision interval**
-to 1000–2000 ms or the safety layer will report `AI_TIMEOUT`.
-
-### C. Your own Jev server
-
-Implement two endpoints (full contract in [docs/jev-integration.md](docs/jev-integration.md)):
-
-* `GET /health` → any 2xx (optionally `{ "model": "...", "version": "..." }`)
-* `POST /decide` with `{ state, allowed_actions, model, ... }` → `{ "action": "TURN_LEFT", "confidence": 0.9, "reason": "..." }`
-
-Minimal Python example:
-
-```python
-# pip install fastapi uvicorn   ·   uvicorn jev_server:app --port 8000
-from fastapi import FastAPI
-app = FastAPI()
-
-@app.get("/health")
-def health():
-    return {"status": "ok", "model": "jev-1"}
-
-@app.post("/decide")
-def decide(req: dict):
-    s = req["state"]
-    if s["mission"]["state"] != "RUNNING" or not s["obstacles"]["valid"]:
-        return {"action": "STOP", "confidence": 1.0, "reason": "not ready"}
-    # call your Jev model here and return its decision
-    if s["obstacles"]["front"] < 1.2:
-        return {"action": "TURN_LEFT", "confidence": 0.8, "reason": "obstacle ahead"}
-    return {"action": "REACH_TARGET", "confidence": 0.9, "reason": "path clear"}
+```bash
+npm run dev:jev          # jevos + simulation server + UI together
+# or in two terminals:
+npm run jev              # = .jev/current/jev serve   (extra args: npm run jev -- --threads 8)
+npm run dev
 ```
 
-Then run the lab with `AI_PROVIDER=local-jev JEV_BASE_URL=http://localhost:8000 npm run dev`. If your server uses
-different paths or field names, set `JEV_DECIDE_PATH` / `JEV_HEALTH_PATH`, or use **AI → Custom HTTP** to map any
-request/response format without code.
+Open http://localhost:3000. The top bar shows **AI: CONNECTED**. Switch to **AUTO** and press **▶ RUN**.
+
+### Manual install (any platform, including Windows)
+
+1. From the [release page](https://github.com/feder-cr/jev/releases/latest) download the server for your system
+   (`jev-windows-x64.zip`, `jev-linux-x64.tar.gz` or `jev-macos-arm64.tar.gz`) and `jevos-v4-openvino-int8.zip`.
+2. Unpack the server, then unpack the model inside the `jev` folder so it sits in `jev/model`:
+
+   ```bash
+   tar -xzf jev-macos-arm64.tar.gz          # Windows: unzip jev-windows-x64.zip
+   cd jev
+   unzip ../jevos-v4-openvino-int8.zip      # creates model/
+   ./jev serve                              # Windows: jev.exe serve   → http://127.0.0.1:8017
+   ```
+
+3. Start the lab pointing at it:
+
+   ```bash
+   AI_PROVIDER=local-jev JEV_PROTOCOL=systemone JEV_BASE_URL=http://127.0.0.1:8017 npm run dev
+   ```
+
+   or from the UI: **AI → Local Jev**, Base URL `http://127.0.0.1:8017`, Protocol **jevos / systemone**, **TEST**.
+
+Useful `jev serve` options: `--threads` (fewer if other heavy apps run), `--port`, `--state-cache 0` (no text cache).
+If you start jevos with `JEV_API_KEY=...`, export the same variable before `npm run dev`: the lab sends it as a bearer
+token.
+
+### How the lab asks jevos
+
+jevos answers questions about a state; it does not generate free text. The adapter (`JEV_PROTOCOL=systemone`) sends
+the rover's aggregated state and **one `choice` question** whose options are the eight actions:
+
+```json
+POST http://127.0.0.1:8017/v1/systemone
+{
+  "model": "jev-latest",
+  "state": { "robot": { … }, "obstacles": { "front": 1.4, … }, "target": { "bearing": 15, … }, … },
+  "questions": {
+    "action": {
+      "type": "choice",
+      "instructions": "You are the driving policy of a small ground rover. … Rules, in order: … Which action should the rover take now?",
+      "criteria": { "FORWARD": "drive straight ahead at cruise speed", "TURN_LEFT": "turn left …", "STOP": "stand still", "…": "…" }
+    }
+  }
+}
+```
+
+```json
+{ "model": "jevos-v4",
+  "answers": { "action": { "type": "choice", "choice": "TURN_LEFT",
+               "probabilities": { "TURN_LEFT": 0.62, "FORWARD": 0.2, "…": 0.0 }, "confidence": 0.41 } } }
+```
+
+The answer becomes the internal decision `{action: "TURN_LEFT", confidence: 0.62, reason: "jevos choice (confidence 0.41): …"}`
+and goes through the deterministic safety layer as usual. jevos reads the rule from the question, so **the driving policy
+is the `instructions` text**: edit it in **AI → Local Jev → Policy** (or `JEV_INSTRUCTIONS`) and compare runs with the same
+seed. Eight options cost about 150 ms per decision on a laptop CPU, comfortably inside the default 500 ms interval.
+
+### Without the model: the stand-in server
+
+```bash
+npm run mock-jev         # http://127.0.0.1:8017, same endpoints as jevos (+ /decide and OpenAI ones)
+```
+
+It answers with the built-in rule policy and 120±60 ms of latency. Options: `MOCK_JEV_PORT`, `MOCK_JEV_LATENCY`,
+`MOCK_JEV_JITTER`, `MOCK_JEV_ERROR_RATE` (0–1). Do not run it together with `npm run jev`: both use port 8017.
+
+### Other models
+
+* **OpenAI-compatible servers** (Ollama, llama.cpp `llama-server`, vLLM, LM Studio): `JEV_PROTOCOL=openai-chat`,
+  e.g. `JEV_BASE_URL=http://localhost:11434 JEV_MODEL=qwen2.5:3b JEV_TIMEOUT=3000` for Ollama.
+* **Your own server**: `JEV_PROTOCOL=native` and implement `GET /health` + `POST /decide` returning
+  `{action, confidence, reason}`; or map any format from **AI → Custom HTTP**. Contract in
+  [docs/jev-integration.md](docs/jev-integration.md).
 
 ## Jev setup
 
-1. Run your Jev / Jev-like model behind an HTTP endpoint (see [docs/jev-integration.md](docs/jev-integration.md) for the
-   request/response contract — any OpenAI-compatible server such as llama.cpp, vLLM or Ollama also works with
-   `JEV_PROTOCOL=openai-chat`).
+1. Run jevos (see above) or another Jev-like model behind an HTTP endpoint (contract in
+   [docs/jev-integration.md](docs/jev-integration.md)).
 2. In the UI: **AI → Local Jev**, set *Base URL*/*Model*, press **TEST**, or start with
-   `AI_PROVIDER=local-jev JEV_BASE_URL=http://localhost:8000 npm run dev`.
+   `AI_PROVIDER=local-jev JEV_BASE_URL=http://127.0.0.1:8017 npm run dev`.
 3. The top bar shows `AI: CONNECTED` / `OFFLINE` / `TIMEOUT`. If Jev is down the simulation keeps running and the safety
    layer applies the *On AI timeout* policy (default: STOP).
 
@@ -220,7 +252,7 @@ Compare engines headless with the same seed:
 
 ```bash
 npm run compare                                   # mock on every preset
-npm run compare -- --jev http://localhost:8000 --scenarios SINGLE_OBSTACLE,MAZE --seed 7
+npm run compare -- --jev http://127.0.0.1:8017 --scenarios SINGLE_OBSTACLE,MAZE --seed 7
 ```
 
 ---
