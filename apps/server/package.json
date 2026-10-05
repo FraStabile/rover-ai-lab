@@ -1,0 +1,29 @@
+{
+  "name": "@rover/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "start": "NODE_ENV=production tsx src/index.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@fastify/static": "^10.1.5",
+    "@fastify/websocket": "^11.3.1",
+    "@rover/autonomy": "*",
+    "@rover/decision-engine": "*",
+    "@rover/jev-adapter": "*",
+    "@rover/logging": "*",
+    "@rover/protocol": "*",
+    "@rover/runtime": "*",
+    "@rover/shared": "*",
+    "@rover/simulation": "*",
+    "drizzle-orm": "^0.45.3",
+    "fastify": "^5.12.5",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}

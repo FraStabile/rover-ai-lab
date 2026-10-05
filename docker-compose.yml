@@ -1,0 +1,28 @@
+services:
+  rover-ai-lab:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      # A Jev server running on the host machine:
+      JEV_BASE_URL: ${JEV_BASE_URL:-http://host.docker.internal:8000}
+      JEV_MODEL: ${JEV_MODEL:-default}
+      JEV_TIMEOUT: ${JEV_TIMEOUT:-1000}
+      SIMULATION_DEFAULT_HZ: ${SIMULATION_DEFAULT_HZ:-50}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - rover-data:/data
+    restart: unless-stopped
+
+  # Optional stand-in for a local Jev model: `docker compose --profile mock-jev up`
+  mock-jev:
+    profiles: ["mock-jev"]
+    build: .
+    command: ["npx", "tsx", "scripts/mock-jev-server.ts"]
+    ports:
+      - "8000:8000"
+
+volumes:
+  rover-data:
