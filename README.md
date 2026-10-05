@@ -126,6 +126,86 @@ Everything else (robot, sensors, AI timing, safety, planner, failures) is editab
 
 ---
 
+## Installing a local Jev
+
+The lab talks to Jev over HTTP only, so "installing Jev" means running *any* local server that speaks the decision
+contract. Three ways, from quickest to real:
+
+### A. Mock Jev server (included, no install)
+
+A stand-in that implements the full contract with simulated latency. Good for checking the pipeline end to end.
+
+```bash
+npm run mock-jev                                   # http://localhost:8000
+AI_PROVIDER=local-jev JEV_BASE_URL=http://localhost:8000 npm run dev
+```
+
+Options: `MOCK_JEV_PORT`, `MOCK_JEV_LATENCY` (ms), `MOCK_JEV_JITTER` (ms), `MOCK_JEV_ERROR_RATE` (0–1).
+
+### B. A local LLM through Ollama (OpenAI-compatible)
+
+1. Install Ollama: `brew install ollama` on macOS, or see https://ollama.com/download.
+2. Start it and download a small model (fast enough for ~2 decisions per second):
+
+   ```bash
+   ollama serve &            # skip if the Ollama app is already running
+   ollama pull qwen2.5:3b
+   ```
+
+3. Point the lab at it:
+
+   ```bash
+   AI_PROVIDER=local-jev \
+   JEV_PROTOCOL=openai-chat \
+   JEV_BASE_URL=http://localhost:11434 \
+   JEV_MODEL=qwen2.5:3b \
+   JEV_TIMEOUT=3000 \
+   npm run dev
+   ```
+
+   Or do it from the UI: **AI → Local Jev**, Base URL `http://localhost:11434`, Model `qwen2.5:3b`, Protocol
+   **OpenAI chat**, Timeout `3000`, then **TEST**.
+
+In OpenAI mode the adapter sends a system prompt describing the contract and the state as the user message to
+`/v1/chat/completions`, and uses `/v1/models` as the health check. Any other OpenAI-compatible server works the same way
+(llama.cpp `llama-server`, vLLM, LM Studio): change `JEV_BASE_URL` and `JEV_MODEL`.
+
+Tips: keep the temperature at 0; if decisions take longer than the decision interval, raise **AI → Decision interval**
+to 1000–2000 ms or the safety layer will report `AI_TIMEOUT`.
+
+### C. Your own Jev server
+
+Implement two endpoints (full contract in [docs/jev-integration.md](docs/jev-integration.md)):
+
+* `GET /health` → any 2xx (optionally `{ "model": "...", "version": "..." }`)
+* `POST /decide` with `{ state, allowed_actions, model, ... }` → `{ "action": "TURN_LEFT", "confidence": 0.9, "reason": "..." }`
+
+Minimal Python example:
+
+```python
+# pip install fastapi uvicorn   ·   uvicorn jev_server:app --port 8000
+from fastapi import FastAPI
+app = FastAPI()
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "model": "jev-1"}
+
+@app.post("/decide")
+def decide(req: dict):
+    s = req["state"]
+    if s["mission"]["state"] != "RUNNING" or not s["obstacles"]["valid"]:
+        return {"action": "STOP", "confidence": 1.0, "reason": "not ready"}
+    # call your Jev model here and return its decision
+    if s["obstacles"]["front"] < 1.2:
+        return {"action": "TURN_LEFT", "confidence": 0.8, "reason": "obstacle ahead"}
+    return {"action": "REACH_TARGET", "confidence": 0.9, "reason": "path clear"}
+```
+
+Then run the lab with `AI_PROVIDER=local-jev JEV_BASE_URL=http://localhost:8000 npm run dev`. If your server uses
+different paths or field names, set `JEV_DECIDE_PATH` / `JEV_HEALTH_PATH`, or use **AI → Custom HTTP** to map any
+request/response format without code.
+
 ## Jev setup
 
 1. Run your Jev / Jev-like model behind an HTTP endpoint (see [docs/jev-integration.md](docs/jev-integration.md) for the
